@@ -77,3 +77,5 @@ ENV/
 env.bak/
 venv.bak/
 
+# MacOS
+.DS_Store
