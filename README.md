@@ -45,6 +45,12 @@ If you see a window with a grid, then you are good to go.
 
 The folder `python_step0` contains a sample program that just opens a 3D window to check if the environment has all the required dependencies
 
+In this part we will cover the basics of Python, explaining:
+
+* basic syntax
+* type system
+* documentation
+
 ## Step 1: basic 2D vector class
 
 In this part we will create a basic 2D vector class. We will explore:
