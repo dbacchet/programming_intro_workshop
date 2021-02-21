@@ -60,6 +60,8 @@ In this part we will create a basic 2D vector class. We will explore:
 * implementing unit tests
 * implementing operators
 
+The final code for this section is in the folder `python_step1_vector`.
+
 ## Step 2: create a simple 2D physics system
 
 In this part we will use the `Vector2d` class as starting point to create a simple Physics System, with support for collisions and integration of the dynamics.
@@ -68,6 +70,8 @@ We will explore:
 * creating more complex objects
 * using collections
 * algorithmic complexity
+
+The final code for this section is in the folder `python_step2_physics`.
 
 At the end of this section, we'll have an app like the following:
 ![sample_physics](resources/sample_physics.gif)
