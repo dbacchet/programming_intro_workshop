@@ -1,6 +1,7 @@
 import math
 import time
 from vector import *
+from grid import Grid
 
 class PhysicsObject(object):
     def __init__(self, mass = 1.0, radius=1.0, pos=Vector2d(), vel=Vector2d()):
@@ -16,6 +17,7 @@ class PhysicsObject(object):
 class PhysicsSystem(object):
     def __init__(self): 
         self.objects = []
+        self.grid = Grid()
         # profiling
         self.time_coll = 0
         self.time_dyn = 0
@@ -33,6 +35,7 @@ class PhysicsSystem(object):
         self.process_collisions()
         t1 = time.time()
         # integrate dynamics
+        self.grid.clear()
         for obj in self.objects:
             obj.vel = obj.vel + obj.acc*dt
             if (obj.vel.length()>5):
@@ -42,6 +45,7 @@ class PhysicsSystem(object):
             if (obj.pos.y>100): obj.pos.y = -100
             if (obj.pos.x<-100): obj.pos.x = 100
             if (obj.pos.y<-100): obj.pos.y = 100
+            self.grid.add(obj.pos, obj)
         t2 = time.time()
         self.time_coll += t1-t0
         self.time_dyn += t2-t1
@@ -54,7 +58,10 @@ class PhysicsSystem(object):
     def process_collisions(self):
         for obj1 in self.objects:
             # check collisions with every other object
-            for obj2 in self.objects:
+            # for obj2 in self.objects:
+            # check collisions with objects within the given radius
+            candidates = self.grid.objects_in_radius(obj1.pos, 5)
+            for obj2 in candidates:
                 # skip if two objs are the same
                 if obj1 is obj2:
                     continue
