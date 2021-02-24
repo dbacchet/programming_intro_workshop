@@ -4,9 +4,6 @@
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
-#define HANDMADE_MATH_IMPLEMENTATION
-#define HANDMADE_MATH_NO_SSE
-#include "HandmadeMath.h"
 
 #include "vmath.h"
 #include "renderer-sapp.glsl.h"
@@ -17,10 +14,11 @@
 #define MAX_PARTICLES (512 * 1024)
 #define NUM_PARTICLES_EMITTED_PER_FRAME (10)
 
+using Color = math::Vector4<uint8_t>;
+
 class Camera {
   public:
     void init(void) {
-        position = math::Vector3f(0, 0, -100);
         target = math::Vector3f(0, 0, 0);
         transform = math::matrix4_identity<float>();
         mat_projection =
@@ -41,8 +39,6 @@ class Camera {
     float fov_deg = 45.0f;
     float z_near = 1.0f;
     float z_far = 500.0f;
-    float aspect_ratio = 16.0f / 9.0f;
-    math::Vector3f position;
     math::Vector3f target;
 
     float azimuth = 0.0f;
@@ -61,23 +57,18 @@ static struct {
     uint32_t num_grid_vertices = 0;
     sg_pipeline pip_inst;
     sg_bindings bind_inst;
+    uint32_t num_cylinder_vertices = 0;
     float rz = 0;
     int cur_num_particles;
-    hmm_vec3 pos[MAX_PARTICLES];
-    hmm_vec3 vel[MAX_PARTICLES];
+    math::Vector3f pos[MAX_PARTICLES];
+    math::Vector3f vel[MAX_PARTICLES];
     frame_callback callback = nullptr;
     Camera camera;
+    std::vector<math::Matrix4f> object_tfs;
 } state;
 
-struct Color {
-    uint8_t r = 180;
-    uint8_t g = 180;
-    uint8_t b = 180;
-    uint8_t a = 255;
-};
-
 struct Vertex {
-    hmm_vec3 pos;
+    math::Vector3f pos;
     Color color = {180, 180, 180, 255};
 };
 
@@ -109,6 +100,44 @@ std::vector<Vertex> create_grid(float len, float step) {
         vertices.push_back({{-i * step, -len, 0}, i % major ? col1 : col2});
         vertices.push_back({{-i * step, len, 0}, i % major ? col1 : col2});
     }
+    return vertices;
+}
+
+std::vector<Vertex> create_cylinder(float radius, float height, const Color &color_top = Color(255, 0, 0, 255),
+                                    const Color &color_side = Color(128, 0, 0, 255), uint32_t steps = 10) {
+    float delta_a = 2 * M_PI / steps;
+    std::vector<Vertex> vertices;
+    vertices.reserve(12 * steps);
+    for (uint32_t i = 0; i < steps; i++) {
+        const float a1 = delta_a * i;
+        const float a2 = delta_a * (i + 1);
+        math::Vector3f p0 = {0, 0, 0};
+        math::Vector3f p1 = {radius * std::cos(a1), radius * std::sin(a1), 0};
+        math::Vector3f p2 = {radius * std::cos(a2), radius * std::sin(a2), 0};
+        math::Vector3f p3 = {0, 0, height};
+        math::Vector3f p4 = {radius * std::cos(a1), radius * std::sin(a1), height};
+        math::Vector3f p5 = {radius * std::cos(a2), radius * std::sin(a2), height};
+        // add triangles: top,bottom
+        vertices.push_back({p0, color_top});
+        vertices.push_back({p1, color_top});
+        vertices.push_back({p2, color_top});
+        vertices.push_back({p3, color_top});
+        vertices.push_back({p4, color_top});
+        vertices.push_back({p5, color_top});
+        // side
+        vertices.push_back({p1, color_side});
+        vertices.push_back({p2, color_side});
+        vertices.push_back({p4, color_side});
+        vertices.push_back({p2, color_side});
+        vertices.push_back({p5, color_side});
+        vertices.push_back({p4, color_side});
+    }
+    // small arrow
+    float a = 0.5f;
+    float b = 1 - a;
+    vertices.push_back({{radius * a, -radius * b, height * 1.01f}, color_side});
+    vertices.push_back({{radius, 0, height * 1.01f}, color_side});
+    vertices.push_back({{radius * a, radius * b, height * 1.01f}, color_side});
     return vertices;
 }
 
@@ -149,33 +178,17 @@ void init(void) {
     // /////// //
     // objects //
     // /////// //
-    /* vertex buffer for static geometry, goes into vertex-buffer-slot 0 */
-    const float r = 0.05f;
-    const std::vector<Vertex> vertices = {
-        // positions            colors
-        {{0.0f, -r, 0.0f}, {255, 0, 0, 255}}, //
-        {{r, 0.0f, r}, {0, 255, 0, 255}},     //
-        {{r, 0.0f, -r}, {0, 0, 255, 255}},    //
-        {{-r, 0.0f, -r}, {255, 255, 0, 255}}, //
-        {{-r, 0.0f, r}, {0, 255, 255, 255}},  //
-        {{0.0f, r, 0.0f}, {255, 0, 255, 255}} //
-    };
+    // vertex buffer for static geometry, goes into vertex-buffer-slot 0
+    auto vertices = create_cylinder(0.1, 0.05, Color(255, 0, 0, 255), Color(128, 0, 0, 255), 20);
     state.bind_inst.vertex_buffers[0] =
-        sg_make_buffer((sg_buffer_desc){//.type = SG_BUFFERTYPE_VERTEXBUFFER,
+        sg_make_buffer((sg_buffer_desc){.type = SG_BUFFERTYPE_VERTEXBUFFER,
                                         .data = {vertices.data(), vertices.size() * sizeof(Vertex)},
                                         .label = "geometry-vertices"});
+    state.num_cylinder_vertices = vertices.size();
 
-    /* index buffer for static geometry */
-    const uint16_t indices[] = {
-        0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1, //
-        5, 1, 2, 5, 2, 3, 5, 3, 4, 5, 4, 1  //
-    };
-    state.bind_inst.index_buffer = sg_make_buffer(
-        (sg_buffer_desc){.type = SG_BUFFERTYPE_INDEXBUFFER, .data = SG_RANGE(indices), .label = "geometry-indices"});
-
-    /* empty, dynamic instance-data vertex buffer, goes into vertex-buffer-slot 1 */
-    state.bind_inst.vertex_buffers[1] = sg_make_buffer(
-        (sg_buffer_desc){.size = MAX_PARTICLES * sizeof(hmm_vec3), .usage = SG_USAGE_STREAM, .label = "instance-data"});
+    // empty, dynamic instance-data vertex buffer, goes into vertex-buffer-slot 1
+    state.bind_inst.vertex_buffers[1] = sg_make_buffer((sg_buffer_desc){
+        .size = MAX_PARTICLES * sizeof(math::Vector3f), .usage = SG_USAGE_STREAM, .label = "instance-data"});
 
     /* a shader */
     sg_shader shd = sg_make_shader(instancing_shader_desc(sg_query_backend()));
@@ -189,8 +202,8 @@ void init(void) {
     pip_desc.layout.attrs[ATTR_vs_instancing_color0] = {.buffer_index = 0, .format = SG_VERTEXFORMAT_UBYTE4N};
     pip_desc.layout.attrs[ATTR_vs_instancing_inst_pos] = {.buffer_index = 1, .format = SG_VERTEXFORMAT_FLOAT3};
     pip_desc.shader = shd;
-    pip_desc.index_type = SG_INDEXTYPE_UINT16;
-    pip_desc.cull_mode = SG_CULLMODE_BACK;
+    // pip_desc.index_type = SG_INDEXTYPE_UINT16;
+    pip_desc.cull_mode = SG_CULLMODE_NONE;
     pip_desc.depth = {
         .compare = SG_COMPAREFUNC_LESS_EQUAL,
         .write_enabled = true,
@@ -229,7 +242,7 @@ void event(const sapp_event *e) {
 void frame(void) {
     const float frame_time = 1.0f / 60.0f;
     if (state.callback) {
-        state.callback(frame_time);
+        state.callback(frame_time, state.object_tfs);
     }
 
     state.camera.update();
@@ -237,10 +250,10 @@ void frame(void) {
     /* emit new particles */
     for (int i = 0; i < NUM_PARTICLES_EMITTED_PER_FRAME; i++) {
         if (state.cur_num_particles < MAX_PARTICLES) {
-            state.pos[state.cur_num_particles] = HMM_Vec3(0.0, 0.0, 0.0);
-            state.vel[state.cur_num_particles] =
-                HMM_Vec3(((float)(rand() & 0x7FFF) / 0x7FFF) - 0.5f, ((float)(rand() & 0x7FFF) / 0x7FFF) * 0.5f + 2.0f,
-                         ((float)(rand() & 0x7FFF) / 0x7FFF) - 0.5f);
+            state.pos[state.cur_num_particles] = {0.0, 0.0, 0.0};
+            state.vel[state.cur_num_particles] = math::Vector3f(((float)(rand() & 0x7FFF) / 0x7FFF) - 0.5f,
+                                                                ((float)(rand() & 0x7FFF) / 0x7FFF) * 0.5f + 2.0f,
+                                                                ((float)(rand() & 0x7FFF) / 0x7FFF) - 0.5f);
             state.cur_num_particles++;
         } else {
             break;
@@ -249,34 +262,28 @@ void frame(void) {
 
     /* update particle positions */
     for (int i = 0; i < state.cur_num_particles; i++) {
-        state.vel[i].Y -= 1.0f * frame_time;
-        state.pos[i].X += state.vel[i].X * frame_time;
-        state.pos[i].Y += state.vel[i].Y * frame_time;
-        state.pos[i].Z += state.vel[i].Z * frame_time;
+        state.vel[i].y -= 1.0f * frame_time;
+        state.pos[i].x += state.vel[i].x * frame_time;
+        state.pos[i].y += state.vel[i].y * frame_time;
+        state.pos[i].z += state.vel[i].z * frame_time;
         /* bounce back from 'ground' */
-        if (state.pos[i].Y < -2.0f) {
-            state.pos[i].Y = -1.8f;
-            state.vel[i].Y = -state.vel[i].Y;
-            state.vel[i].X *= 0.8f;
-            state.vel[i].Y *= 0.8f;
-            state.vel[i].Z *= 0.8f;
+        if (state.pos[i].y < -2.0f) {
+            state.pos[i].y = -1.8f;
+            state.vel[i].y = -state.vel[i].y;
+            state.vel[i].x *= 0.8f;
+            state.vel[i].y *= 0.8f;
+            state.vel[i].z *= 0.8f;
         }
     }
 
     /* update instance data */
     sg_update_buffer(state.bind_inst.vertex_buffers[1],
-                     (sg_range){.ptr = state.pos, .size = (size_t)state.cur_num_particles * sizeof(hmm_vec3)});
+                     (sg_range){.ptr = state.pos, .size = (size_t)state.cur_num_particles * sizeof(math::Vector3f)});
 
     /* model-view-projection matrix */
-    // hmm_mat4 proj = HMM_Perspective(60.0f, sapp_widthf() / sapp_heightf(), 0.1f, 500.0f);
-    // hmm_mat4 view = HMM_LookAt(HMM_Vec3(0.0f, 15.0f, 120.0f), HMM_Vec3(0.0f, 0.0f, 0.0f), HMM_Vec3(0.0f,
-    // 0.0f, 1.0f)); hmm_mat4 view_proj = HMM_MultiplyMat4(proj, view);
     math::Matrix4f view_proj = state.camera.mat_projection * state.camera.inverse_transform;
-    // state.rz += 1.0f;
     vs_params_t vs_params;
-    // vs_params.mvp = HMM_MultiplyMat4(view_proj, HMM_Rotate(state.rz, HMM_Vec3(0.0f, 0.0f, 1.0f)));
     vs_params.mvp = view_proj;
-    ;
 
     /* ...and draw */
     sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
@@ -289,7 +296,7 @@ void frame(void) {
     sg_apply_pipeline(state.pip_inst);
     sg_apply_bindings(&state.bind_inst);
     sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, SG_RANGE(vs_params));
-    sg_draw(0, 24, state.cur_num_particles);
+    sg_draw(0, state.num_cylinder_vertices, state.cur_num_particles);
     sg_end_pass();
     sg_commit();
 }

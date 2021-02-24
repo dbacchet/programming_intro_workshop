@@ -27,3 +27,7 @@ add_executable(renderer-sapp renderer-sapp.cpp sample_app.cpp)
 target_link_libraries(renderer-sapp PUBLIC 
                                          sokol_sapp)
 
+add_executable(sample_physics renderer-sapp.cpp sample_physics.cpp)
+target_link_libraries(sample_physics PUBLIC 
+                                         sokol_sapp)
+
