@@ -31,7 +31,7 @@ public:
             obj.acc = math::Vector2f();
         }
         // collisions
-        // here
+        process_collisions();
         // integrate dynamics
         for (auto &obj : objects) {
             obj.vel += obj.acc * dt;
@@ -43,6 +43,31 @@ public:
             if (obj.pos.y>100) obj.pos.y = -100;
             if (obj.pos.x<-100) obj.pos.x = 100;
             if (obj.pos.y<-100) obj.pos.y = 100;
+        }
+    }
+
+    void process_collisions() {
+        for (int i=0; i<objects.size(); i++) {
+            for (int j=0; j<objects.size(); j++) {
+                // skip if 2 objects are the same
+                if (i==j) {
+                    continue;
+                }
+                auto &obj1 = objects[i];
+                auto &obj2 = objects[j];
+                float d = math::length(obj1.pos - obj2.pos);
+                if (d<1E-6) {
+                    d=1E-6;
+                }
+                float comp = obj1.radius + obj2.radius - d;
+                if (comp>0) {
+                    // objects are colliding
+                    math::Vector2f direction = (obj1.pos - obj2.pos)/d;
+                    float stiffness = 500;
+                    obj1.acc = direction * comp * stiffness / obj1.mass;
+                    obj2.acc = direction * comp * stiffness / obj2.mass * -1.0f;
+                }
+            }
         }
     }
 

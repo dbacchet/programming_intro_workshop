@@ -4,6 +4,7 @@
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
+#include "sokol_time.h"
 
 #include "vmath.h"
 #include "renderer-sapp.glsl.h"
@@ -143,6 +144,7 @@ std::vector<Vertex> create_cylinder(float radius, float height, const Color &col
 
 void init(void) {
     sg_setup((sg_desc){.context = sapp_sgcontext()});
+    stm_setup();
 
     /* a pass action for the default render pass */
     state.pass_action = {0};
@@ -179,7 +181,7 @@ void init(void) {
     // objects //
     // /////// //
     // vertex buffer for static geometry, goes into vertex-buffer-slot 0
-    auto vertices = create_cylinder(0.1, 0.05, Color(255, 0, 0, 255), Color(128, 0, 0, 255), 20);
+    auto vertices = create_cylinder(1.0, 0.5, Color(255, 0, 0, 255), Color(128, 0, 0, 255), 20);
     state.bind_inst.vertex_buffers[0] =
         sg_make_buffer((sg_buffer_desc){.type = SG_BUFFERTYPE_VERTEXBUFFER,
                                         .data = {vertices.data(), vertices.size() * sizeof(Vertex)},
@@ -190,9 +192,6 @@ void init(void) {
     state.bind_inst.vertex_buffers[1] = sg_make_buffer((sg_buffer_desc){
         .size = MAX_PARTICLES * sizeof(math::Vector3f), .usage = SG_USAGE_STREAM, .label = "instance-data"});
 
-    /* a shader */
-    sg_shader shd = sg_make_shader(instancing_shader_desc(sg_query_backend()));
-
     /* a pipeline object */
     sg_pipeline_desc pip_desc = {0};
     pip_desc.layout = {0};
@@ -200,9 +199,11 @@ void init(void) {
     pip_desc.layout.buffers[1].step_func = SG_VERTEXSTEP_PER_INSTANCE,
     pip_desc.layout.attrs[ATTR_vs_instancing_pos] = {.buffer_index = 0, .format = SG_VERTEXFORMAT_FLOAT3};
     pip_desc.layout.attrs[ATTR_vs_instancing_color0] = {.buffer_index = 0, .format = SG_VERTEXFORMAT_UBYTE4N};
-    pip_desc.layout.attrs[ATTR_vs_instancing_inst_pos] = {.buffer_index = 1, .format = SG_VERTEXFORMAT_FLOAT3};
-    pip_desc.shader = shd;
-    // pip_desc.index_type = SG_INDEXTYPE_UINT16;
+    pip_desc.layout.attrs[ATTR_vs_instancing_inst_tf_c1] = {.buffer_index = 1, .format = SG_VERTEXFORMAT_FLOAT4};
+    pip_desc.layout.attrs[ATTR_vs_instancing_inst_tf_c2] = {.buffer_index = 1, .format = SG_VERTEXFORMAT_FLOAT4};
+    pip_desc.layout.attrs[ATTR_vs_instancing_inst_tf_c3] = {.buffer_index = 1, .format = SG_VERTEXFORMAT_FLOAT4};
+    pip_desc.layout.attrs[ATTR_vs_instancing_inst_tf_c4] = {.buffer_index = 1, .format = SG_VERTEXFORMAT_FLOAT4};
+    pip_desc.shader = sg_make_shader(instancing_shader_desc(sg_query_backend()));
     pip_desc.cull_mode = SG_CULLMODE_NONE;
     pip_desc.depth = {
         .compare = SG_COMPAREFUNC_LESS_EQUAL,
@@ -240,45 +241,19 @@ void event(const sapp_event *e) {
 }
 
 void frame(void) {
-    const float frame_time = 1.0f / 60.0f;
+    static uint64_t curr_time = 0;
+    const double frame_time = stm_sec(stm_laptime(&curr_time));
     if (state.callback) {
         state.callback(frame_time, state.object_tfs);
     }
+    // printf("obj size:%lu\n", state.object_tfs.size());
 
     state.camera.update();
 
-    /* emit new particles */
-    for (int i = 0; i < NUM_PARTICLES_EMITTED_PER_FRAME; i++) {
-        if (state.cur_num_particles < MAX_PARTICLES) {
-            state.pos[state.cur_num_particles] = {0.0, 0.0, 0.0};
-            state.vel[state.cur_num_particles] = math::Vector3f(((float)(rand() & 0x7FFF) / 0x7FFF) - 0.5f,
-                                                                ((float)(rand() & 0x7FFF) / 0x7FFF) * 0.5f + 2.0f,
-                                                                ((float)(rand() & 0x7FFF) / 0x7FFF) - 0.5f);
-            state.cur_num_particles++;
-        } else {
-            break;
-        }
-    }
-
-    /* update particle positions */
-    for (int i = 0; i < state.cur_num_particles; i++) {
-        state.vel[i].y -= 1.0f * frame_time;
-        state.pos[i].x += state.vel[i].x * frame_time;
-        state.pos[i].y += state.vel[i].y * frame_time;
-        state.pos[i].z += state.vel[i].z * frame_time;
-        /* bounce back from 'ground' */
-        if (state.pos[i].y < -2.0f) {
-            state.pos[i].y = -1.8f;
-            state.vel[i].y = -state.vel[i].y;
-            state.vel[i].x *= 0.8f;
-            state.vel[i].y *= 0.8f;
-            state.vel[i].z *= 0.8f;
-        }
-    }
-
     /* update instance data */
-    sg_update_buffer(state.bind_inst.vertex_buffers[1],
-                     (sg_range){.ptr = state.pos, .size = (size_t)state.cur_num_particles * sizeof(math::Vector3f)});
+    sg_update_buffer(
+        state.bind_inst.vertex_buffers[1],
+        (sg_range){.ptr = state.object_tfs.data(), .size = state.object_tfs.size() * sizeof(math::Matrix4f)});
 
     /* model-view-projection matrix */
     math::Matrix4f view_proj = state.camera.mat_projection * state.camera.inverse_transform;
@@ -296,7 +271,7 @@ void frame(void) {
     sg_apply_pipeline(state.pip_inst);
     sg_apply_bindings(&state.bind_inst);
     sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_vs_params, SG_RANGE(vs_params));
-    sg_draw(0, state.num_cylinder_vertices, state.cur_num_particles);
+    sg_draw(0, state.num_cylinder_vertices, state.object_tfs.size());
     sg_end_pass();
     sg_commit();
 }

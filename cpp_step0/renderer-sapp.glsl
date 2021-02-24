@@ -37,13 +37,17 @@ uniform vs_params {
 
 in vec3 pos;
 in vec4 color0;
-in vec3 inst_pos;
+in vec4 inst_tf_c1;
+in vec4 inst_tf_c2;
+in vec4 inst_tf_c3;
+in vec4 inst_tf_c4;
 
 out vec4 color;
 
 void main() {
-    vec4 pos = vec4(pos + inst_pos, 1.0);
-    gl_Position = mvp * pos;
+    vec4 pos = vec4(pos, 1.0);
+    mat4 inst_tf = mat4(inst_tf_c1, inst_tf_c2, inst_tf_c3, inst_tf_c4);
+    gl_Position = mvp * inst_tf * pos;
     color = color0;
 }
 @end
