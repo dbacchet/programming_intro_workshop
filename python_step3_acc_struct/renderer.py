@@ -1,4 +1,4 @@
-import os, time
+import os, time, math
 import numpy as np
 from pyrr import Matrix44, Quaternion, Vector3, Vector4, vector
 
@@ -171,10 +171,15 @@ class SimpleRenderer(Example):
         # objects
         for obj in SimpleRenderer.objects:
             # model matrix
-            scale = Matrix44.from_scale([obj.radius, obj.radius, obj.radius])
-            rotation = Matrix44.from_z_rotation(-np.arctan2(obj.vel.y, obj.vel.x))
-            translation = Matrix44.from_translation([obj.pos.x, obj.pos.y,0])
-            model = translation * rotation * scale
+            # scale = Matrix44.from_scale([obj.radius, obj.radius, obj.radius])
+            # rotation = Matrix44.from_z_rotation(-np.arctan2(obj.vel.y, obj.vel.x))
+            # translation = Matrix44.from_translation([obj.pos.x, obj.pos.y,0])
+            # model = translation * rotation * scale
+            heading = np.arctan2(obj.vel.y, obj.vel.x)
+            model = Matrix44([obj.radius*math.cos(heading), obj.radius*math.sin(heading), 0, 0,
+                             -obj.radius*math.sin(heading), obj.radius*math.cos(heading), 0, 0,
+                             0,0,1, 0,
+                             obj.pos.x,obj.pos.y,0,1])
             # render object
             self.mvp.write((self.camera.mat_projection * self.camera.mat_lookat.inverse * model).astype('f4'))
             self.cyl_vao.render(moderngl.TRIANGLES)

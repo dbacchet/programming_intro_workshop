@@ -58,7 +58,7 @@ class PhysicsSystem(object):
     def process_collisions(self):
         for obj1 in self.objects:
             # check collisions with every other object
-            # for obj2 in self.objects:
+            # candidates = self.objects
             # check collisions with objects within the given radius
             candidates = self.grid.objects_in_radius(obj1.pos, 5)
             for obj2 in candidates:

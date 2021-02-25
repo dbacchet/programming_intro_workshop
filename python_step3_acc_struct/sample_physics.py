@@ -25,7 +25,7 @@ def random_agents():
     ps.add_object(obj1)
     ps.add_object(obj2)
     # add a bunch of randomly placed objects
-    for i in range(200):
+    for i in range(500):
         obj = PhysicsObject(random.uniform(0.5,2.0), random.uniform(0.5,1.5), 
                             Vector2d(random.uniform(-100,100), random.uniform(-100,100)), 
                             Vector2d(random.uniform(-5,5), random.uniform(-5,5)))
